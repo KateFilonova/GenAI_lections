@@ -1,5 +1,6 @@
 import requests
 import json
+import re
 from typing import List, Dict, Optional
 from decouple import config
 
@@ -99,8 +100,6 @@ class LLMAgent:
         Работает как с OpenRouter, так и с Ollama.
         """
 
-        # Системный промпт, который объясняет агенту его роль
-        # и формат ответа
         system_prompt = f"""
         You are a helpful AI planning assistant. Analyze the user's request and decide if you need to use any tools.
 
@@ -109,6 +108,10 @@ class LLMAgent:
         - **web_search**: For finding any information about the real world (current events, facts, definitions). Use it with the user's question or a clear search query. USE ONLY RUSSIAN LANGUAGE QUERIES in this tool.
         - **pdf_info**: For extracting information from PDF files (metadata, page count, text content). Use it with a local file path or a URL to a PDF file.
         - **audio_info**: For extracting metadata from audio files (MP3, WAV): duration, bitrate, sample rate, channels, tags (artist, album, title). Use it with a local file path to an audio file.
+
+        IMPORTANT RULE FOR audio_info:
+        If the user asks about an MP3 or WAV file, the "input" field for audio_info MUST contain ONLY the file path.
+        Do not include explanations, questions, or other text in the "input" field.
 
         Your response MUST be ONLY a JSON object of the following format.
 
@@ -124,7 +127,6 @@ class LLMAgent:
         If no tool is needed, return an empty plan: {{"plan": []}}.
         """
 
-        # Формируем запрос к API
         payload = {
             "model": self.model,
             "messages": [
@@ -134,17 +136,12 @@ class LLMAgent:
         }
 
         try:
-            # Для Ollama может потребоваться дополнительная настройка
             if self.local:
                 payload["stream"] = False
 
             response_data = self._make_api_request(payload)
 
-            # Извлекаем текстовый ответ от модели
             llm_text = response_data["choices"][0]["message"]["content"]
-
-            # Очищаем ответ от блоков кода Markdown
-            import re
 
             json_match = re.search(
                 r'```(?:json)?\s*(\{.*?\})\s*```',
@@ -162,7 +159,6 @@ class LLMAgent:
                 f"{cleaned_json_text}"
             )
 
-            # Пытаемся преобразовать ответ в JSON
             action_plan = json.loads(cleaned_json_text)
             plan = action_plan.get("plan", [])
 
@@ -171,11 +167,7 @@ class LLMAgent:
         except (json.JSONDecodeError, KeyError, Exception) as e:
             print(f"Произошла ошибка при создании плана: {e}")
 
-            # Пробуем альтернативный подход:
-            # извлечь JSON из текста
             try:
-                import re
-
                 json_match = re.search(
                     r'\{.*"plan".*\}',
                     llm_text,
@@ -186,10 +178,50 @@ class LLMAgent:
                     action_plan = json.loads(json_match.group())
                     return action_plan.get("plan", [])
 
-            except:
+            except Exception:
                 pass
 
             return []
+
+    @staticmethod
+    def _extract_audio_path(tool_input: str) -> str:
+        """
+        Извлекает путь к MP3 или WAV из строки, которую вернула LLM.
+
+        Маленькая модель может вернуть не только путь,
+        но и поясняющий текст, например:
+
+        "Нужно обработать файл /home/user/music.wav"
+
+        Метод извлекает только:
+
+        /home/user/music.wav
+        """
+
+        if not isinstance(tool_input, str):
+            return tool_input
+
+        text = tool_input.strip()
+
+        # Ищем путь, заканчивающийся на .mp3 или .wav.
+        # Поддерживаются Linux и Windows пути.
+        match = re.search(
+            r'(?P<path>(?:[A-Za-z]:[\\/]|/)?[^\n"\']*?\.(?:mp3|wav))',
+            text,
+            re.IGNORECASE
+        )
+
+        if match:
+            audio_path = match.group("path").strip()
+
+            # Убираем возможные знаки препинания после пути
+            audio_path = audio_path.rstrip(".,;:!?)]}")
+
+            return audio_path
+
+        # Если путь найти не удалось,
+        # возвращаем исходное значение.
+        return text
 
     def _generate_final_response(self, user_query: str) -> str:
         """
@@ -241,7 +273,6 @@ class LLMAgent:
         if not plan:
             print("Инструменты не требуются. Генерирую ответ напрямую.")
 
-            # Генерируем прямой ответ через LLM
             direct_prompt = (
                 f"Ответьте на следующий вопрос кратко и информативно: "
                 f"{query}"
@@ -262,40 +293,50 @@ class LLMAgent:
 
                 return response_data["choices"][0]["message"]["content"]
 
-            except:
+            except Exception:
                 return "Извините, не удалось сгенерировать ответ."
 
         # --- Шаг 2: Исполнение плана ---
         print(f"План действий: {plan}")
 
         for step in plan:
-            tool_name = step.get('action')
-            tool_input = step.get('input')
+            tool_name = step.get("action")
+            tool_input = step.get("input")
 
             # ---------------------------------------------------------
             # ИСПРАВЛЕНИЕ ДЛЯ AUDIO_INFO
             # ---------------------------------------------------------
-            # Маленькая LLM может передать не только путь к файлу,
-            # но и поясняющий текст, например:
+            # LLM может передать в input не только путь,
+            # но и естественный язык.
             #
-            # "Длины и битрейт файла: /path/01_dialogue.wav"
+            # Например:
             #
-            # AudioInfoTool ожидает именно путь к файлу.
-            # Поэтому извлекаем из ответа модели настоящий путь
-            # к MP3 или WAV.
+            # "Нужно извлечь метаданные файла
+            # /home/runner/work/GenAI_lections/GenAI_lections/01_dialogue.wav"
+            #
+            # AudioInfoTool ожидает только путь:
+            #
+            # /home/runner/work/GenAI_lections/GenAI_lections/01_dialogue.wav
+            #
+            # Поэтому перед вызовом инструмента
+            # извлекаем настоящий путь к аудиофайлу.
             # ---------------------------------------------------------
 
             if tool_name == "audio_info" and isinstance(tool_input, str):
-                import re
+                original_input = tool_input
 
-                match = re.search(
-                    r'([^\n"\']+\.(?:mp3|wav))',
-                    tool_input,
-                    re.IGNORECASE
+                tool_input = self._extract_audio_path(tool_input)
+
+                print(
+                    f"> Извлечен путь к аудиофайлу: "
+                    f"{tool_input}"
                 )
 
-                if match:
-                    tool_input = match.group(1).strip().rstrip(".,;:")
+                if original_input != tool_input:
+                    print(
+                        "> LLM передала дополнительный текст. "
+                        "Используется только путь к аудиофайлу."
+                    )
 
             # Проверяем, существует ли указанный инструмент
             if tool_name in self.tools:
@@ -307,8 +348,8 @@ class LLMAgent:
 
                 # Добавляем результат в историю
                 self.conversation_history.append({
-                    'role': 'system',
-                    'content': f"Tool {tool_name} result: {result}"
+                    "role": "system",
+                    "content": f"Tool {tool_name} result: {result}"
                 })
 
             else:
@@ -320,8 +361,8 @@ class LLMAgent:
                 print(error_msg)
 
                 self.conversation_history.append({
-                    'role': 'system',
-                    'content': error_msg
+                    "role": "system",
+                    "content": error_msg
                 })
 
         # --- Шаг 3: Генерация финального ответа ---
@@ -343,12 +384,11 @@ class LLMAgent:
             return False
 
         try:
-            # Проверяем доступность Ollama API
             test_url = f"{self.ollama_base_url}/v1/models"
 
             response = requests.get(test_url)
 
             return response.status_code == 200
 
-        except:
+        except Exception:
             return False
