@@ -1,4 +1,4 @@
-# 3_1_LLM_agent/tests/test_agent.py
+# GenAI_lections/3_1_LLM_agent/tests/test_agent.py
 
 import re
 import pytest
@@ -8,27 +8,29 @@ from llm_agent.core_v2 import LLMAgent
 
 
 # =====================================================================
-# ИНТЕГРАЦИОННЫЕ ТЕСТЫ (реальная Ollama + реальный WAV-файл)
+# ИНТЕГРАЦИОННЫЕ ТЕСТЫ (реальная Ollama + реальный WAV)
 # =====================================================================
-# Файл 01_dialogue.wav лежит в корне репозитория.
-# Путь считается от 3_1_LLM_agent/, где запускается pytest:
-#   Path(__file__)              = 3_1_LLM_agent/tests/test_agent.py
-#   .parent                     = 3_1_LLM_agent/tests/
-#   .parent.parent              = 3_1_LLM_agent/
-#   .parent.parent.parent       = корень репо  ← здесь 01_dialogue.wav
-#
-# Метаданные файла:
-#   duration ≈ 226.96 s
-#   sample_rate = 16000 Hz
-#   channels = 1 (моно)
-#   bitrate = 512000 bps
+# Файл: GenAI_lections/01_dialogue.wav
+# Метаданные:
+#   duration     ≈ 226.96 s
+#   sample_rate  = 16000 Hz
+#   channels     = 1 (моно)
+#   bitrate      = 512000 bps
 # =====================================================================
 
 MODEL = "qwen3:0.6b"
-ERROR_STUB = "не удалось сгенерировать ответ"
 
-# Путь к файлу в корне репозитория
+# Абсолютный путь к файлу — от корня репозитория
 AUDIO_FILE = Path(__file__).parent.parent.parent / "01_dialogue.wav"
+
+# Фразы, сигнализирующие об ошибке агента
+ERROR_PHRASES = [
+    "не удалось сгенерировать ответ",
+    "не могу предоставить",
+    "не найден",
+    "not found",
+    "error",
+]
 
 EXPECTED_DURATION = 226.96
 EXPECTED_SAMPLE_RATE = 16000
@@ -41,25 +43,32 @@ def _extract_numbers(text: str) -> list[float]:
     return [float(n) for n in re.findall(r"\d+\.\d+|\d+", text)]
 
 
+def _assert_no_error(response: str):
+    """Проверяет, что агент не вернул ошибку."""
+    lower = response.lower()
+    for phrase in ERROR_PHRASES:
+        assert phrase not in lower, f"Агент вернул ошибку: {response}"
+
+
 @pytest.mark.integration
 def test_audio_fixture_exists():
-    """Убеждаемся, что файл на месте перед интеграционными тестами."""
+    """Убеждаемся, что файл на месте."""
     assert AUDIO_FILE.exists(), f"Нет файла {AUDIO_FILE}"
 
 
 @pytest.mark.integration
 def test_audio_info_query_live():
-    """Агент должен вернуть осмысленный ответ про реальный WAV."""
+    """MP3/WAV: длительность и битрейт."""
     agent = LLMAgent(local=True, ollama_model=MODEL)
     query = (
-        "Извлеки метаданные из аудиофайла 01_dialogue.wav "
+        f"Извлеки метаданные из аудиофайла {AUDIO_FILE} "
         "и напиши его длительность и битрейт."
     )
     response = agent.process_query(query)
 
     assert isinstance(response, str)
     assert len(response) > 0
-    assert ERROR_STUB not in response.lower()
+    _assert_no_error(response)
 
     assert any(w in response.lower() for w in [
         "длительн", "секунд", "битрейт", "kbps", "duration", "bitrate"
@@ -70,17 +79,17 @@ def test_audio_info_query_live():
 
 @pytest.mark.integration
 def test_audio_info_wav_channels_live():
-    """Агент должен вернуть осмысленный ответ про каналы WAV."""
+    """WAV: каналы и частота дискретизации."""
     agent = LLMAgent(local=True, ollama_model=MODEL)
     query = (
-        "Какие параметры у аудиофайла 01_dialogue.wav? "
+        f"Какие параметры у аудиофайла {AUDIO_FILE}? "
         "Сколько там каналов и какая частота дискретизации?"
     )
     response = agent.process_query(query)
 
     assert isinstance(response, str)
     assert len(response) > 0
-    assert ERROR_STUB not in response.lower()
+    _assert_no_error(response)
 
     assert any(w in response.lower() for w in [
         "канал", "моно", "частот", "гц", "hz", "sample", "channels"
@@ -89,23 +98,23 @@ def test_audio_info_wav_channels_live():
 
 @pytest.mark.integration
 def test_audio_info_full_info_live():
-    """Агент должен вернуть метаданные в одном ответе."""
+    """WAV: полные метаданные в одном ответе."""
     agent = LLMAgent(local=True, ollama_model=MODEL)
     query = (
-        "Извлеки полные метаданные из 01_dialogue.wav: "
+        f"Извлеки полные метаданные из {AUDIO_FILE}: "
         "длительность, битрейт, количество каналов, частоту дискретизации."
     )
     response = agent.process_query(query)
 
     assert isinstance(response, str)
     assert len(response) > 0
-    assert ERROR_STUB not in response.lower()
+    _assert_no_error(response)
 
     numbers = _extract_numbers(response)
     expected = [EXPECTED_DURATION, EXPECTED_SAMPLE_RATE, EXPECTED_CHANNELS, EXPECTED_BITRATE]
     found = []
     for exp in expected:
-        tol = max(1.0, exp * 0.01)
+        tol = max(1.0, exp * 0.01)  # допуск 1%
         if any(abs(n - exp) <= tol for n in numbers):
             found.append(exp)
 
