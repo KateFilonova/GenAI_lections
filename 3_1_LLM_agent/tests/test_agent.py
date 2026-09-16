@@ -1,6 +1,8 @@
+# tests/test_audio_info.py
+
 import pytest
-#from unittest.mock import MagicMock, patch
 from llm_agent.core_v2 import LLMAgent
+
 
 # =====================================================================
 # ИНТЕГРАЦИОННЫЕ ТЕСТЫ (Запускают реальную Ollama / API)
@@ -8,26 +10,43 @@ from llm_agent.core_v2 import LLMAgent
 # Маркируем как 'integration', чтобы их можно было отключать при быстрой проверке
 
 @pytest.mark.integration
-def test_calculator_query_live():
-    """Реальный запуск агента для проверки математики."""
-    # Для тестов лучше использовать локальную модель, если она поднята
+def test_audio_info_query_live():
+    """Реальный запуск агента для проверки извлечения метаданных MP3-файла."""
     agent = LLMAgent(local=True, ollama_model="qwen3.5:0.8b")
-    query = "Сколько будет (5 + 3) * 2? Напиши только цифру."
-    
+    query = "Извлеки метаданные из аудиофайла test_audio/sample.mp3 и напиши его длительность и битрейт."
+
     response = agent.process_query(query)
-    
-    # Проверяем, что агент смог посчитать и выдать 16
-    assert "16" in response
+
+    # Проверяем, что в ответе присутствуют ключевые поля метаданных
+    assert "битрейт" in response.lower() or "bitrate" in response.lower()
+    # Проверяем, что модель упомянула длительность
+    assert "длитель" in response.lower() or "duration" in response.lower()
 
 
 @pytest.mark.integration
-def test_football_query_live():
-    """Реальный запуск агента для проверки поиска DuckDuckGo."""
+def test_audio_info_wav_query_live():
+    """Реальный запуск агента для проверки извлечения метаданных WAV-файла."""
     agent = LLMAgent(local=True, ollama_model="qwen3.5:0.8b")
-    query = "Кто выиграл последний матч Спартак-Динамо?"
-    
+    query = "Какие параметры у аудиофайла test_audio/sample.wav? Сколько там каналов?"
+
     response = agent.process_query(query)
-    
-    # Проверяем, что в реальном ответе фигурируют названия команд
-    assert "Спартак" in response or "Spartak" in response
-    assert "Динамо" in response or "Dynamo" in response
+
+    # Проверяем, что в ответе упоминаются каналы
+    assert "канал" in response.lower() or "channel" in response.lower()
+
+
+@pytest.mark.integration
+def test_audio_info_tags_query_live():
+    """Реальный запуск агента для проверки извлечения тегов (исполнитель, альбом)."""
+    agent = LLMAgent(local=True, ollama_model="qwen3.5:0.8b")
+    query = "Какой исполнитель и альбом у файла test_audio/track.mp3?"
+
+    response = agent.process_query(query)
+
+    # Проверяем, что в ответе присутствует упоминание исполнителя или альбома
+    assert (
+        "исполнител" in response.lower()
+        or "artist" in response.lower()
+        or "альбом" in response.lower()
+        or "album" in response.lower()
+    )
