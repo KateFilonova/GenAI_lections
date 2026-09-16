@@ -1,83 +1,166 @@
-# This workflow will install Python dependencies, run tests and lint with a single version of Python
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
-
 name: Python application
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v3
-      with:
-        python-version: "3.10"
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install flake8 pytest pytest-cov coveralls
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+      - name: Install dependencies
+        working-directory: ./3_1_LLM_agent
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest coverage
 
-    # ---- Lint (по желанию, можно оставить закомментированным) ----
-    # - name: Lint with flake8
-    #   run: |
-    #     flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-    #     flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
 
-    - name: Download and extract Ollama manually
-      run: |
-        # Приводим архитектуру к формату amd64 / arm64
-        if [ "${{ runner.arch }}" = "X64" ]; then ARCH="amd64"; else ARCH="arm64"; fi
+      - name: Download and extract Ollama manually
+        run: |
+          if [ "${{ runner.arch }}" = "X64" ]; then
+            ARCH="amd64"
+          else
+            ARCH="arm64"
+          fi
 
-        # Скачивание и распаковка
-        curl -fsSL "https://ollama.com/download/ollama-linux-${ARCH}.tar.zst" -o ollama.tar.zst
-        mkdir -p .ollama-install
-        tar -C .ollama-install --zstd -xf ollama.tar.zst
-        rm ollama.tar.zst
+          curl -fsSL "https://ollama.com/download/ollama-linux-${ARCH}.tar.zst" -o ollama.tar.zst
 
-        # Добавляем бинарник в PATH, чтобы команда `ollama` была доступна
-        echo "$(pwd)/.ollama-install/bin" >> $GITHUB_PATH
+          mkdir -p .ollama-install
+          tar -C .ollama-install --zstd -xf ollama.tar.zst
 
-    - name: Start Ollama Service and Pull Model
-      run: |
-        export OLLAMA_NUM_PARALLEL=1
-        export OLLAMA_MAX_LOADED_MODELS=1
+          rm ollama.tar.zst
 
-        # Запускаем Ollama в фоновом режиме и перенаправляем логи
-        ollama serve > ollama.log 2>&1 &
+          echo "$(pwd)/.ollama-install/bin" >> $GITHUB_PATH
 
-        # Ждем пару секунд, пока сервер инициализируется
-        sleep 5
+      - name: Start Ollama Service and Pull Model
+        run: |
+          export OLLAMA_NUM_PARALLEL=1
+          export OLLAMA_MAX_LOADED_MODELS=1
 
-        # Скачиваем модель, указанную в коде теста
-        ollama pull qwen3.5:0.8b
+          ollama serve > ollama.log 2>&1 &
 
-    - name: Test with pytest and coverage
-      working-directory: ./3_1_LLM_agent
-      env:
-        PYTHONPATH: .
-      run: |
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        python -m pytest --cov=./ --cov-report=xml -v
-        python main.py
+          sleep 5
 
-    - name: Upload coverage to Coveralls
-      working-directory: ./3_1_LLM_agent
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
-        COVERALLS_SERVICE_NAME: github
-      run: coveralls --service=github
+          ollama pull qwen3:0.6b
+
+      # ============================================================
+      # RUN TESTS + COVERAGE
+      # ============================================================
+
+      - name: Run tests with coverage
+        id: tests
+        working-directory: ./3_1_LLM_agent
+        env:
+          PYTHONPATH: .
+        run: |
+          set +e
+
+          coverage run --source=llm_agent -m pytest -v
+
+          TEST_EXIT_CODE=$?
+
+          echo "Pytest exit code: $TEST_EXIT_CODE"
+
+          coverage report
+          coverage json -o ../coverage-data.json
+
+          echo "TEST_EXIT_CODE=$TEST_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+          exit 0
+
+      # ============================================================
+      # CREATE BADGE JSON
+      # ============================================================
+
+      - name: Create coverage badge JSON
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          coverage_file = "coverage-data.json"
+
+          if not os.path.exists(coverage_file):
+              print("ERROR: coverage-data.json was not created")
+              raise SystemExit(1)
+
+          with open(coverage_file, "r") as f:
+              data = json.load(f)
+
+          coverage = round(data["totals"]["percent_covered"], 1)
+
+          if coverage >= 90:
+              color = "brightgreen"
+          elif coverage >= 75:
+              color = "green"
+          elif coverage >= 60:
+              color = "yellow"
+          elif coverage >= 40:
+              color = "orange"
+          else:
+              color = "red"
+
+          badge = {
+              "schemaVersion": 1,
+              "label": "coverage",
+              "message": f"{coverage}%",
+              "color": color
+          }
+
+          with open("coverage.json", "w") as f:
+              json.dump(badge, f, indent=2)
+
+          print(f"Coverage: {coverage}%")
+          PY
+
+          rm coverage-data.json
+
+      # ============================================================
+      # UPDATE COVERAGE BADGE IN REPOSITORY
+      # ============================================================
+
+      - name: Update coverage badge
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add coverage.json
+
+          if git diff --cached --quiet; then
+            echo "Coverage has not changed"
+          else
+            git commit -m "Update code coverage badge"
+            git push
+          fi
+
+      # ============================================================
+      # CHECK TEST RESULT
+      # ============================================================
+
+      - name: Check test result
+        if: always()
+        run: |
+          TEST_EXIT_CODE="${{ steps.tests.outputs.TEST_EXIT_CODE }}"
+
+          if [ "$TEST_EXIT_CODE" != "0" ]; then
+            echo "Tests failed with exit code $TEST_EXIT_CODE"
+            exit "$TEST_EXIT_CODE"
+          fi
+
+          echo "All tests passed"
