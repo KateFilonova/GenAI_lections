@@ -211,10 +211,24 @@ class LLMAgent:
         # --- Шаг 2: Исполнение плана ---
         print(f"План действий: {plan}")
         for step in plan:
-            tool_name = step.get('action')
-            tool_input = step.get('input')
+    tool_name = step.get('action')
+    tool_input = step.get('input')
 
-            if tool_name in self.tools:
+    # Для audio_info LLM может добавить поясняющий текст
+    # вокруг пути к файлу. Извлекаем настоящий путь к MP3/WAV.
+    if tool_name == "audio_info" and isinstance(tool_input, str):
+        import re
+
+        match = re.search(
+            r'([^\n"\']+\.(?:mp3|wav))',
+            tool_input,
+            re.IGNORECASE
+        )
+
+        if match:
+            tool_input = match.group(1).strip().rstrip(".,;:")
+
+    if tool_name in self.tools:
                 print(f"Выполняется инструмент: '{tool_name}'")
                 result = self.tools[tool_name].use(tool_input)
                 print(f"Результат: {result}...")
