@@ -13,6 +13,19 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - name: Check audio file
+        run: |
+          echo "Рабочая директория:"
+          pwd
+
+          echo "Содержимое корня репозитория:"
+          ls -lah
+
+          echo "Проверяем аудиофайл:"
+          ls -lh 01_dialogue.wav
+
+          echo "Информация о файле:"
+          file 01_dialogue.wav
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
