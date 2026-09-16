@@ -39,7 +39,7 @@ def test_audio_info_wav_query_live():
 @pytest.mark.integration
 def test_audio_info_tags_query_live():
     """Реальный запуск агента для проверки извлечения тегов (исполнитель, альбом)."""
-    agent = LLMAgent(local=True, ollama_model="qwen3.5:0.8b")
+    agent = LLMAgent(local=True, ollama_model="qwen3:0.6b")
     query = "Какой исполнитель и альбом у файла test_audio/track.mp3?"
 
     response = agent.process_query(query)
