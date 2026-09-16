@@ -1,7 +1,19 @@
-# 3_1_LLM_agent/requirements.txt
+# HTTP-запросы к OpenRouter / Ollama
 requests
+
+# Чтение переменных окружения (.env)
 python-decouple
+
+# Веб-поиск (WebSearchTool)
 ddgs
-pytest
+
+# PDF-метаданные и извлечение текста (PDFInfoTool)
 pypdf
 pdfplumber
+
+# Аудиометаданные (AudioInfoTool)
+mutagen
+
+# Тестирование
+pytest
+coverage
