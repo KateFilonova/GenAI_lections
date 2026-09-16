@@ -3,7 +3,7 @@
 import re
 import pytest
 from pathlib import Path
-
+from llm_agent.tool_audioinfo import AudioInfoTool
 from llm_agent.core_v2 import LLMAgent
 
 
@@ -17,7 +17,24 @@ from llm_agent.core_v2 import LLMAgent
 #   channels     = 1 (моно)
 #   bitrate      = 512000 bps
 # =====================================================================
+@pytest.mark.integration
+def test_audio_info_real_wav():
+    """Проверяет AudioInfoTool на реальном WAV-файле."""
 
+    assert AUDIO_FILE.exists(), f"Нет файла: {AUDIO_FILE}"
+    assert AUDIO_FILE.is_file(), f"Это не файл: {AUDIO_FILE}"
+
+    tool = AudioInfoTool()
+    response = tool.use(str(AUDIO_FILE))
+
+    assert isinstance(response, str)
+    assert "01_dialogue.wav" in response
+    assert "WAV" in response
+
+    assert "16000 Гц" in response
+    assert "1" in response
+    assert "512.0 кбит/с" in response
+    assert "03:46" in response
 MODEL = "qwen3:0.6b"
 
 # Абсолютный путь к файлу — от корня репозитория
