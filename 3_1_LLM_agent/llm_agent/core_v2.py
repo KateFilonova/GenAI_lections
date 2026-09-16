@@ -8,6 +8,8 @@ from decouple import config
 from .tool_calculator import CalculatorTool
 from .tool_websearch import WebSearchTool
 from .tool_pdfinfo import PDFInfoTool
+from .tool_audioinfo import AudioInfoTool
+
 
 class LLMAgent:
     """
@@ -44,6 +46,7 @@ class LLMAgent:
             "calculator": CalculatorTool(),
             "web_search": WebSearchTool(),
             "pdf_info": PDFInfoTool(),
+            "audio_info": AudioInfoTool(),
         }
         self.conversation_history = []
     
@@ -89,6 +92,7 @@ class LLMAgent:
         - **calculator**: For any math-related questions (numbers, calculations). Use it with the full expression.
         - **web_search**: For finding any information about the real world (current events, facts, definitions). Use it with the user's question or a clear search query. USE ONLY RUSSIAN LANGUAGE QUERIES in this tool.
         - **pdf_info**: For extracting information from PDF files (metadata, page count, text content). Use it with a local file path or a URL to a PDF file.
+        - **audio_info**: For extracting metadata from audio files (MP3, WAV): duration, bitrate, sample rate, channels, tags (artist, album, title). Use it with a local file path to an audio file.
         Your response MUST be ONLY a JSON object of the following format.
         If one or more tools are needed to answer, return JSON of this structure:
         {{
