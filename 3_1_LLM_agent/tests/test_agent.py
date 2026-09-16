@@ -26,7 +26,8 @@ def test_audio_info_query_live():
 @pytest.mark.integration
 def test_audio_info_wav_query_live():
     """Реальный запуск агента для проверки извлечения метаданных WAV-файла."""
-    agent = LLMAgent(local=True, ollama_model="qwen3.5:0.8b")
+
+    agent = LLMAgent(local=True, ollama_model="qwen3:0.6b")
     query = "Какие параметры у аудиофайла test_audio/sample.wav? Сколько там каналов?"
 
     response = agent.process_query(query)
